@@ -202,8 +202,14 @@ def connect(uri, *,
         loop=loop, legacy_recv=legacy_recv,
     )
 
+    if kwds.get('sock') is None:
+        host, port = wsuri.host, wsuri.port
+    else:
+        # If sock is given, host and port mustn't be specified.
+        host, port = None, None
+
     transport, protocol = yield from loop.create_connection(
-        factory, wsuri.host, wsuri.port, **kwds)
+        factory, host, port, **kwds)
 
     try:
         yield from protocol.handshake(

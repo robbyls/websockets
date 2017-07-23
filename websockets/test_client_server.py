@@ -4,6 +4,7 @@ import http
 import http.client
 import logging
 import os
+import socket
 import ssl
 import unittest
 import unittest.mock
@@ -74,6 +75,7 @@ def temp_test_client(test, *args, **kwds):
 def with_manager(manager, *args, **kwds):
     """
     Return a decorator that wraps a function with a context manager.
+
     """
     def decorate(func):
         @functools.wraps(func)
@@ -89,6 +91,7 @@ def with_manager(manager, *args, **kwds):
 def with_server(**kwds):
     """
     Return a decorator for TestCase methods that starts and stops a server.
+
     """
     return with_manager(temp_test_server, **kwds)
 
@@ -96,6 +99,7 @@ def with_server(**kwds):
 def with_client(*args, **kwds):
     """
     Return a decorator for TestCase methods that starts and stops a client.
+
     """
     return with_manager(temp_test_client, *args, **kwds)
 
@@ -178,6 +182,38 @@ class ClientServerTests(unittest.TestCase):
         self.loop.run_until_complete(self.client.send("Hello!"))
         reply = self.loop.run_until_complete(self.client.recv())
         self.assertEqual(reply, "Hello!")
+
+    @with_server()
+    def test_explicit_socket(self):
+
+        class TrackedSocket(socket.socket):
+            def __init__(self, typ, transp):
+                self.used = False
+                super().__init__(typ, transp)
+
+            def recv(self, buffersize, flags=0):
+                self.used = True
+                return super().recv(buffersize, flags)
+
+            def send(self, bytes, flags=0):
+                self.used = True
+                return super().send(bytes, flags)
+
+        sock = TrackedSocket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(('localhost', 8642))
+
+        try:
+            self.assertFalse(sock.used)
+
+            with self.temp_client(sock=sock):
+                self.loop.run_until_complete(self.client.send("Hello!"))
+                reply = self.loop.run_until_complete(self.client.recv())
+                self.assertEqual(reply, "Hello!")
+
+            self.assertTrue(sock.used)
+
+        finally:
+            sock.close()
 
     @with_server()
     def test_server_close_while_client_connected(self):
