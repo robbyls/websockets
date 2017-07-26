@@ -11,7 +11,9 @@ from contextlib import contextmanager
 
 from .client import *
 from .compatibility import FORBIDDEN, UNAUTHORIZED
-from .exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
+from .exceptions import (
+    ConnectionClosed, InvalidHandshake, InvalidStatus, NegotiationError
+)
 from .http import USER_AGENT, read_response
 from .server import *
 
@@ -127,10 +129,14 @@ class ClientServerTests(unittest.TestCase):
         self.loop.run_forever()
 
     def start_server(self, **kwds):
+        # Don't enable compression by default in tests.
+        kwds.setdefault('use_compression', False)
         server = serve(handler, 'localhost', 8642, **kwds)
         self.server = self.loop.run_until_complete(server)
 
     def start_client(self, path='', **kwds):
+        # Don't enable compression by default in tests.
+        kwds.setdefault('use_compression', False)
         client = connect('ws://localhost:8642/' + path, **kwds)
         self.client = self.loop.run_until_complete(client)
 
@@ -380,7 +386,7 @@ class ClientServerTests(unittest.TestCase):
     def test_subprotocol_error(self, _select_subprotocol):
         _select_subprotocol.return_value = 'superchat'
 
-        with self.assertRaises(InvalidHandshake):
+        with self.assertRaises(NegotiationError):
             self.start_client('subprotocol', subprotocols=['otherchat'])
         self.run_loop_once()
 
