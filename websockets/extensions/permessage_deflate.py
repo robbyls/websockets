@@ -389,6 +389,11 @@ class PerMessageDeflate:
         Configure permessage-deflate extension.
 
         """
+        assert remote_no_context_takeover in [False, True]
+        assert local_no_context_takeover in [False, True]
+        assert 8 <= remote_max_window_bits <= 15
+        assert 8 <= local_max_window_bits <= 15
+
         self.remote_no_context_takeover = remote_no_context_takeover
         self.local_no_context_takeover = local_no_context_takeover
         self.remote_max_window_bits = remote_max_window_bits
@@ -402,7 +407,11 @@ class PerMessageDeflate:
             self.encoder = zlib.compressobj(
                 wbits=-self.local_max_window_bits)
 
+        # To handle continuation frames properly, we must keep track of
+        # whether that initial frame was encoded.
         self.decode_cont_data = False
+        # There's no need for self.encode_cont_data because we always encode
+        # outgoing frames, so it would always be True.
 
     def decode(self, frame):
         """
@@ -442,6 +451,10 @@ class PerMessageDeflate:
             data += _EMPTY_UNCOMPRESSED_BLOCK
         data = self.decoder.decompress(data)
 
+        # Allow garbage collection of the decoder if it won't be reused.
+        if frame.fin and self.remote_no_context_takeover:
+            self.decoder = None
+
         return frame._replace(data=data, rsv1=False)
 
     def encode(self, frame):
@@ -467,7 +480,11 @@ class PerMessageDeflate:
             self.encoder.compress(frame.data) +
             self.encoder.flush(zlib.Z_SYNC_FLUSH)
         )
-        if data.endswith(_EMPTY_UNCOMPRESSED_BLOCK):  # pragma: no cover
+        if frame.fin and data.endswith(_EMPTY_UNCOMPRESSED_BLOCK):
             data = data[:-4]
+
+        # Allow garbage collection of the encoder if it won't be reused.
+        if frame.fin and self.local_no_context_takeover:
+            self.encoder = None
 
         return frame._replace(data=data, rsv1=True)
